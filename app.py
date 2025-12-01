@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from database import SessionLocal, init_db
+from models import UploadedFile, AnalysisResult
 import pandas as pd
 import os
 from pathlib import Path
+from sqlalchemy.exc import SQLAlchemyError
 
 app = Flask(__name__)
 
@@ -53,20 +55,45 @@ def upload_file():
     missing_after = df.isnull().sum().sum()
     missing_filled = missing_before - missing_after
 
-    # Сохраняем результаты
+    # Сохраняем в БД
     db = SessionLocal()
-    db.close()
+    try:
+        uploaded_file = UploadedFile(
+            filename=file.filename,
+            file_type='csv' if file.filename.endswith('.csv') else 'xlsx',
+            size=os.path.getsize(filepath)
+        )
+        db.add(uploaded_file)
+        db.commit()
+        db.refresh(uploaded_file)
 
-    return jsonify({
-        "message": "Файл успешно загружен",
-        "filename": filename,
-        "analysis_summary": {
-            "duplicates_removed": duplicates_removed,
-            "missing_filled": missing_filled,
-            "mean": mean_val,
-            "median": median_val
-        }
-    }), 200
+        analysis_result = AnalysisResult(
+            file_id=uploaded_file.id,
+            mean=json.dumps(mean_val),
+            median=json.dumps(median_val),
+            correlation=corr,
+            duplicates_removed=duplicates_removed,
+            missing_filled=missing_filled
+        )
+        db.add(analysis_result)
+        db.commit()
+
+        return jsonify({
+            "message": "Файл успешно загружен и проанализирован",
+            "filename": filename,
+            "file_id": uploaded_file.id,
+            "analysis_summary": {
+                "duplicates_removed": duplicates_removed,
+                "missing_filled": missing_filled,
+                "mean": mean_val,
+                "median": median_val
+            }
+        }), 200
+    except SQLAlchemyError as e:
+        db.rollback()
+        return jsonify({"error": f"Ошибка при сохранении в БД: {str(e)}"}), 500
+    finally:
+        db.close()
 
 @app.route('/data/stats', methods=['GET'])
 def get_stats():
@@ -74,15 +101,24 @@ def get_stats():
     if not file_id:
         return jsonify({"error": "Не указан file_id"}), 400
 
-    # Здесь нужно получить данные из базы
-    return jsonify({
-        "file_id": file_id,
-        "mean": {"sales": 1500.0},
-        "median": {"sales": 1400.0},
-        "correlation": '{"sales": {"price": 0.8}}',
-        "duplicates_removed": 3,
-        "missing_filled": 5
-    }), 200
+    db = SessionLocal()
+    try:
+        result = db.query(AnalysisResult).filter_by(file_id=file_id).first()
+        if not result:
+            return jsonify({"error": "Результат анализа не найден"}), 404
+
+        return jsonify({
+            "file_id": file_id,
+            "mean": json.loads(result.mean),
+            "median": json.loads(result.median),
+            "correlation": json.loads(result.correlation),
+            "duplicates_removed": result.duplicates_removed,
+            "missing_filled": result.missing_filled
+        }), 200
+    except SQLAlchemyError as e:
+        return jsonify({"error": f"Ошибка при чтении из БД: {str(e)}"}), 500
+    finally:
+        db.close()
 
 @app.route('/data/clean', methods=['GET'])
 def clean_data():
@@ -90,11 +126,21 @@ def clean_data():
     if not file_id:
         return jsonify({"error": "Не указан file_id"}), 400
 
-    return jsonify({
-        "message": "Данные уже очищены",
-        "duplicates_removed": 3,
-        "missing_filled": 5
-    }), 200
+    db = SessionLocal()
+    try:
+        result = db.query(AnalysisResult).filter_by(file_id=file_id).first()
+        if not result:
+            return jsonify({"error": "Результат анализа не найден"}), 404
+
+        return jsonify({
+            "message": "Данные уже очищены",
+            "duplicates_removed": result.duplicates_removed,
+            "missing_filled": result.missing_filled
+        }), 200
+    except SQLAlchemyError as e:
+        return jsonify({"error": f"Ошибка при чтении из БД: {str(e)}"}), 500
+    finally:
+        db.close()
 
 if __name__ == '__main__':
     init_db()
