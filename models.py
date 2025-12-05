@@ -18,9 +18,9 @@ class AnalysisResult(Base):
 
     id = Column(Integer, primary_key=True)
     file_id = Column(Integer, nullable=False)
-    mean = Column(Float)
-    median = Column(Float)
-    correlation = Column(Text)
+    mean = Column(Text)
+    median = Column(Text)
+    correlation = Column(Text)     
     duplicates_removed = Column(Integer)
     missing_filled = Column(Integer)
     analysis_date = Column(DateTime, default=datetime.utcnow)
