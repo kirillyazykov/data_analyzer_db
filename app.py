@@ -54,7 +54,7 @@ def upload_file():
     missing_before = df.isnull().sum().sum()
     df.fillna(df.mean(numeric_only=True), inplace=True)
     missing_after = df.isnull().sum().sum()
-    missing_filled = int(missing_filled)
+    missing_filled = int(missing_before - missing_after)
 
     # Сохраняем в БД
     db = SessionLocal()
