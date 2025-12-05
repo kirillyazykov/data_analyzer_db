@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from database import SessionLocal, init_db
 from models import UploadedFile, AnalysisResult
 import pandas as pd
+import json
 import os
 from pathlib import Path
 from sqlalchemy.exc import SQLAlchemyError
